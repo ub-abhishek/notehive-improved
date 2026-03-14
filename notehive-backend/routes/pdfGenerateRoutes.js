@@ -2,14 +2,14 @@ const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 const pdfParse = require("pdf-parse");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const Groq = require("groq-sdk");
 
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const upload = multer({ storage: multer.memoryStorage() });
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 /**
  * POST /pdf/generate
- * Upload PDF → Extract text → Gemini → Q&A
+ * Upload PDF → Extract text → Groq AI → Q&A
  */
 router.post("/generate", upload.single("pdf"), async (req, res) => {
   try {
@@ -17,7 +17,7 @@ router.post("/generate", upload.single("pdf"), async (req, res) => {
       return res.status(400).json({ error: "PDF file required" });
     }
 
-    // 1️⃣ Extract text from PDF
+    // Extract text from PDF
     const pdfData = await pdfParse(req.file.buffer);
     const extractedText = pdfData.text;
 
@@ -25,26 +25,26 @@ router.post("/generate", upload.single("pdf"), async (req, res) => {
       return res.json({ output: "PDF content too short to generate questions." });
     }
 
-    // 2️⃣ Gemini prompt
-    const prompt = `
-Generate 5 exam-oriented questions with detailed answers
-from the following study material.
+    const prompt = `Generate 5 exam-oriented questions with detailed answers from the following study material.
 
-Format strictly as:
-Q1: question
-A1: answer
+FORMAT:
+Q1: [question text]
+A1: [detailed answer]
+
+Q2: [question text]
+A2: [detailed answer]
 
 Study material:
-${extractedText}
-`;
+${extractedText}`;
 
-    // 3️⃣ Call Gemini
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+    const completion = await groq.chat.completions.create({
+      messages: [{ role: "user", content: prompt }],
+      model: "llama-3.3-70b-versatile",
+      temperature: 0.7,
+      max_tokens: 3000,
     });
 
-    const result = await model.generateContent(prompt);
-    const output = result.response.text();
+    const output = completion.choices[0]?.message?.content || "";
 
     res.json({ output });
 

@@ -1,11 +1,10 @@
+require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-require("dotenv").config();
 
 const roomRoutes = require("./routes/roomRoutes");
 const noteRoutes = require("./routes/noteRoutes");
-const pdfGenerateRoutes = require("./routes/pdfGenerateRoutes");
 const authRoutes = require("./routes/authRoutes");
 const pyqRoutes = require("./routes/pyqRoutes");
 const authMiddleware = require("./middleware/auth");
@@ -24,7 +23,6 @@ app.use(express.json());
 app.use("/auth", authRoutes);
 app.use("/rooms", authMiddleware, roomRoutes);
 app.use("/notes", authMiddleware, noteRoutes);
-app.use("/pdf", authMiddleware, pdfGenerateRoutes);
 app.use("/pyqs", authMiddleware, pyqRoutes);
 
 // Test route

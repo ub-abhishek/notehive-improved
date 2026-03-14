@@ -6,9 +6,10 @@ const PYQ = require("../models/PYQ");
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+const MAX_PYQS = 1;
+
 /**
  * ADD PYQ (TEXT)
- * POST /pyqs
  */
 router.post("/", async (req, res) => {
   try {
@@ -16,6 +17,14 @@ router.post("/", async (req, res) => {
 
     if (!roomId || !title || !content) {
       return res.status(400).json({ error: "All fields required" });
+    }
+
+    // Check limit
+    const pyqCount = await PYQ.countDocuments({ roomId });
+    if (pyqCount >= MAX_PYQS) {
+      return res.status(400).json({ 
+        error: `Only ${MAX_PYQS} PYQ allowed per room. Delete the existing PYQ to add a new one.` 
+      });
     }
 
     const pyq = new PYQ({ roomId, title, content, source: "text" });
@@ -29,7 +38,6 @@ router.post("/", async (req, res) => {
 
 /**
  * ADD PYQ (PDF)
- * POST /pyqs/upload
  */
 router.post("/upload", upload.single("pdf"), async (req, res) => {
   try {
@@ -41,6 +49,14 @@ router.post("/upload", upload.single("pdf"), async (req, res) => {
 
     if (!req.file) {
       return res.status(400).json({ error: "PDF file required" });
+    }
+
+    // Check limit
+    const pyqCount = await PYQ.countDocuments({ roomId });
+    if (pyqCount >= MAX_PYQS) {
+      return res.status(400).json({ 
+        error: `Only ${MAX_PYQS} PYQ allowed per room. Delete the existing PYQ to add a new one.` 
+      });
     }
 
     const pdfData = await pdfParse(req.file.buffer);
@@ -61,7 +77,6 @@ router.post("/upload", upload.single("pdf"), async (req, res) => {
 
 /**
  * GET PYQS BY ROOM
- * GET /pyqs/:roomId
  */
 router.get("/room/:roomId", async (req, res) => {
   try {
@@ -74,7 +89,6 @@ router.get("/room/:roomId", async (req, res) => {
 
 /**
  * DELETE PYQ
- * DELETE /pyqs/:pyqId
  */
 router.delete("/:pyqId", async (req, res) => {
   try {

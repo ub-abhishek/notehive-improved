@@ -3,19 +3,22 @@ import { useNavigate, Link } from "react-router-dom";
 import { BASE_URL } from "../config";
 import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/Navbar";
-import { useToast, ToastContainer } from "../components/Toast";
 
 function Login() {
+  const navigate = useNavigate();
+  const { login } = useAuth();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
-  const navigate = useNavigate();
-  const { toasts, addToast } = useToast();
 
-  const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      addToast("All fields required", "error");
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (!email || !password) {
+      setError("All fields are required");
       return;
     }
 
@@ -30,61 +33,145 @@ function Login() {
       const data = await res.json();
 
       if (!res.ok) {
-        addToast(data.error || "Login failed", "error");
+        setError(data.error || "Login failed");
         return;
       }
 
       login(data.token, data.user);
-      navigate("/");
-    } catch (err) {
-      addToast("Network error — please try again", "error");
+      navigate("/rooms");
+    } catch {
+      setError("Server error. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleKey = (e) => {
-    if (e.key === "Enter") handleLogin();
-  };
-
   return (
     <>
-      <Navbar />
-      <div className="container" style={{ maxWidth: "440px" }}>
-        <div style={{ textAlign: "center", padding: "48px 0 32px" }}>
-          <span className="badge badge-amber" style={{ marginBottom: "12px", display: "inline-block" }}>
-            Welcome Back
-          </span>
-          <h1 style={{ fontSize: "1.8rem", marginBottom: "8px" }}>Sign in</h1>
-          <p style={{ fontSize: "14px" }}>Continue your study session.</p>
-        </div>
+      <Navbar showBack backLabel="Home" />
+      <div className="container">
+        <div style={{ maxWidth: "420px", margin: "60px auto 40px" }}>
+          
+          <div style={{ textAlign: "center", marginBottom: "32px" }}>
+            <div style={{ 
+              fontSize: "2.5rem", 
+              marginBottom: "8px",
+              background: "linear-gradient(135deg, var(--accent) 0%, #f59e0b 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              fontWeight: 800
+            }}>
+              NoteHive
+            </div>
+            <p style={{ color: "var(--text-2)", fontSize: "0.95rem" }}>
+              AI-Powered Exam Paper Generator
+            </p>
+          </div>
 
-        <div className="card">
-          <input
-            type="email"
-            placeholder="Email address"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={handleKey}
-            autoFocus
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={handleKey}
-          />
-          <button onClick={handleLogin} disabled={loading} style={{ width: "100%" }}>
-            {loading ? "Signing in…" : "Sign in →"}
-          </button>
-          <p style={{ textAlign: "center", marginTop: "16px", fontSize: "13px" }}>
-            Don't have an account?{" "}
-            <Link to="/register">Register</Link>
-          </p>
+          <div className="card" style={{ 
+            padding: "32px",
+            border: "1px solid var(--border)",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.08)"
+          }}>
+            <h2 style={{ marginBottom: "8px", fontSize: "1.5rem" }}>Welcome Back</h2>
+            <p style={{ fontSize: "0.9rem", color: "var(--text-2)", marginBottom: "24px" }}>
+              Login to access your study rooms
+            </p>
+
+            {error && (
+              <div style={{
+                padding: "12px 16px",
+                background: "rgba(239, 68, 68, 0.1)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                borderRadius: "var(--radius-sm)",
+                color: "var(--danger)",
+                fontSize: "0.9rem",
+                marginBottom: "20px"
+              }}>
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit}>
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{
+                  display: "block",
+                  fontSize: "0.9rem",
+                  fontWeight: 600,
+                  marginBottom: "6px",
+                  color: "var(--text)"
+                }}>
+                  Email
+                </label>
+                <input
+                  type="email"
+                  placeholder="your.email@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={loading}
+                  style={{ marginBottom: 0 }}
+                />
+              </div>
+
+              <div style={{ marginBottom: "24px" }}>
+                <label style={{
+                  display: "block",
+                  fontSize: "0.9rem",
+                  fontWeight: 600,
+                  marginBottom: "6px",
+                  color: "var(--text)"
+                }}>
+                  Password
+                </label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={loading}
+                  style={{ marginBottom: 0 }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  width: "100%",
+                  padding: "12px",
+                  fontSize: "1rem",
+                  background: loading ? "var(--surface-2)" : "linear-gradient(135deg, var(--accent) 0%, #f59e0b 100%)",
+                  border: "none"
+                }}
+              >
+                {loading ? "Logging in..." : "Login"}
+              </button>
+            </form>
+
+            <div style={{
+              marginTop: "24px",
+              paddingTop: "24px",
+              borderTop: "1px solid var(--border)",
+              textAlign: "center"
+            }}>
+              <p style={{ fontSize: "0.9rem", color: "var(--text-2)" }}>
+                Don't have an account?{" "}
+                <Link
+                  to="/register"
+                  style={{
+                    color: "var(--accent)",
+                    textDecoration: "none",
+                    fontWeight: 600
+                  }}
+                >
+                  Register here
+                </Link>
+              </p>
+            </div>
+          </div>
+
         </div>
       </div>
-      <ToastContainer toasts={toasts} />
     </>
   );
 }

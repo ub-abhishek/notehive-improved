@@ -5,6 +5,9 @@ import Navbar from "../components/Navbar";
 import { useToast, ToastContainer } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 
+const MAX_NOTES = 5;
+const MAX_PYQS = 1;
+
 function Room() {
   const { roomId } = useParams();
   const navigate = useNavigate();
@@ -13,19 +16,20 @@ function Room() {
 
   const [roomName, setRoomName] = useState("");
   const [note, setNote] = useState("");
+  const [noteFile, setNoteFile] = useState(null);
+  const [noteMode, setNoteMode] = useState("text");
   const [notes, setNotes] = useState([]);
   const [loadingRoom, setLoadingRoom] = useState(true);
   const [loadingNotes, setLoadingNotes] = useState(true);
   const [addingNote, setAddingNote] = useState(false);
   const [deletingNoteId, setDeletingNoteId] = useState(null);
 
-  // PYQ state
   const [pyqs, setPyqs] = useState([]);
   const [loadingPyqs, setLoadingPyqs] = useState(true);
   const [pyqTitle, setPyqTitle] = useState("");
   const [pyqContent, setPyqContent] = useState("");
   const [pyqFile, setPyqFile] = useState(null);
-  const [pyqMode, setPyqMode] = useState("text"); // "text" or "pdf"
+  const [pyqMode, setPyqMode] = useState("text");
   const [addingPyq, setAddingPyq] = useState(false);
   const [deletingPyqId, setDeletingPyqId] = useState(null);
 
@@ -82,19 +86,51 @@ function Room() {
   }, [roomId]);
 
   const addNote = async () => {
-    if (!note.trim()) {
-      addToast("Note cannot be empty", "error");
+    if (notes.length >= MAX_NOTES) {
+      addToast(`Maximum ${MAX_NOTES} notes allowed. Delete old notes to add new ones.`, "error");
       return;
     }
+
     setAddingNote(true);
     try {
-      const res = await fetch(`${BASE_URL}/notes`, {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify({ roomId, content: note }),
-      });
-      if (!res.ok) throw new Error();
+      if (noteMode === "text") {
+        if (!note.trim()) {
+          addToast("Note cannot be empty", "error");
+          return;
+        }
+        const res = await fetch(`${BASE_URL}/notes`, {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({ roomId, content: note }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          addToast(data.error || "Failed to add note", "error");
+          return;
+        }
+      } else {
+        if (!noteFile) {
+          addToast("Please select a PDF file", "error");
+          return;
+        }
+        const formData = new FormData();
+        formData.append("roomId", roomId);
+        formData.append("pdf", noteFile);
+
+        const res = await fetch(`${BASE_URL}/notes/upload`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          addToast(data.error || "Failed to add note", "error");
+          return;
+        }
+      }
+
       setNote("");
+      setNoteFile(null);
       await fetchNotes();
       addToast("Note added");
     } catch {
@@ -122,6 +158,11 @@ function Room() {
   };
 
   const addPyq = async () => {
+    if (pyqs.length >= MAX_PYQS) {
+      addToast(`Only ${MAX_PYQS} PYQ allowed per room. Delete existing PYQ first.`, "error");
+      return;
+    }
+
     if (!pyqTitle.trim()) {
       addToast("Title is required", "error");
       return;
@@ -139,7 +180,11 @@ function Room() {
           headers: authHeaders,
           body: JSON.stringify({ roomId, title: pyqTitle, content: pyqContent }),
         });
-        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (!res.ok) {
+          addToast(data.error || "Failed to add PYQ", "error");
+          return;
+        }
       } else {
         if (!pyqFile) {
           addToast("Please select a PDF file", "error");
@@ -155,7 +200,11 @@ function Room() {
           headers: { Authorization: `Bearer ${token}` },
           body: formData,
         });
-        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (!res.ok) {
+          addToast(data.error || "Failed to add PYQ", "error");
+          return;
+        }
       }
 
       setPyqTitle("");
@@ -189,7 +238,7 @@ function Room() {
 
   const deleteRoom = async () => {
     const confirmed = window.confirm(
-      `Delete "${roomName}" and all its notes/PYQs? This cannot be undone.`
+      `Delete "${roomName}" and all its content? This cannot be undone.`
     );
     if (!confirmed) return;
 
@@ -209,6 +258,8 @@ function Room() {
   const handleKey = (e) => {
     if (e.key === "Enter" && e.ctrlKey) addNote();
   };
+
+  const canGenerate = notes.length > 0;
 
   return (
     <>
@@ -231,8 +282,10 @@ function Room() {
             <button
               onClick={() => navigate(`/generate/${roomId}`)}
               style={{ fontSize: "13px", padding: "9px 16px" }}
+              disabled={!canGenerate}
+              title={!canGenerate ? "Add at least 1 note to generate" : ""}
             >
-              ✦ Generate Q&A
+              ✦ Generate KTU Exam
             </button>
             <button
               className="btn-danger"
@@ -246,45 +299,93 @@ function Room() {
 
         {/* Add Note */}
         <div className="card">
-          <h3>Add a Note</h3>
-          <p style={{ fontSize: "13px", marginBottom: "14px" }}>
-            Tip: press <kbd style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "4px", padding: "1px 5px", fontSize: "11px" }}>Ctrl + Enter</kbd> to submit quickly.
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <h3 style={{ marginBottom: 0 }}>Add Study Notes</h3>
+            <span style={{ fontSize: "12px", color: notes.length >= MAX_NOTES ? "var(--danger)" : "var(--text-3)" }}>
+              {notes.length}/{MAX_NOTES} notes
+            </span>
+          </div>
+          <p style={{ fontSize: "13px", marginBottom: "14px", color: "var(--text-2)" }}>
+            Upload your study materials (max {MAX_NOTES} notes). These will be used to generate exam papers.
           </p>
-          <textarea
-            placeholder="Write your note here…"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            onKeyDown={handleKey}
-          />
-          <button onClick={addNote} disabled={addingNote}>
-            {addingNote ? "Adding…" : "Add Note"}
+
+          <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+            <button
+              className={noteMode === "text" ? "" : "btn-ghost"}
+              onClick={() => setNoteMode("text")}
+              style={{ fontSize: "13px", padding: "7px 16px" }}
+              disabled={notes.length >= MAX_NOTES}
+            >
+              Text
+            </button>
+            <button
+              className={noteMode === "pdf" ? "" : "btn-ghost"}
+              onClick={() => setNoteMode("pdf")}
+              style={{ fontSize: "13px", padding: "7px 16px" }}
+              disabled={notes.length >= MAX_NOTES}
+            >
+              PDF Upload
+            </button>
+          </div>
+
+          {noteMode === "text" ? (
+            <>
+              <p style={{ fontSize: "12px", marginBottom: "8px", color: "var(--text-3)" }}>
+                Tip: press <kbd style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "4px", padding: "1px 5px", fontSize: "11px" }}>Ctrl + Enter</kbd> to submit
+              </p>
+              <textarea
+                placeholder="Write your notes here or paste content from textbooks…"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                onKeyDown={handleKey}
+                disabled={notes.length >= MAX_NOTES}
+              />
+            </>
+          ) : (
+            <div style={{ marginBottom: "14px" }}>
+              <input
+                type="file"
+                accept=".pdf"
+                onChange={(e) => setNoteFile(e.target.files[0])}
+                style={{ cursor: "pointer" }}
+                disabled={notes.length >= MAX_NOTES}
+              />
+              {noteFile && (
+                <p style={{ fontSize: "12px", color: "var(--success)", marginTop: "6px" }}>
+                  ✓ {noteFile.name} selected
+                </p>
+              )}
+            </div>
+          )}
+
+          <button onClick={addNote} disabled={addingNote || notes.length >= MAX_NOTES}>
+            {addingNote ? "Adding…" : notes.length >= MAX_NOTES ? "Limit Reached" : "Add Note"}
           </button>
         </div>
 
         {/* Notes List */}
         <div className="card">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-            <h3 style={{ marginBottom: 0 }}>Notes</h3>
+            <h3 style={{ marginBottom: 0 }}>Study Notes</h3>
             <span className="badge badge-amber">{notes.length}</span>
           </div>
           {loadingNotes && (
             <>
               <div className="skeleton" style={{ width: "90%", marginBottom: "10px" }} />
               <div className="skeleton" style={{ width: "70%", marginBottom: "10px" }} />
-              <div className="skeleton" style={{ width: "80%" }} />
             </>
           )}
           {!loadingNotes && notes.length === 0 && (
             <div style={{ textAlign: "center", padding: "24px 0" }}>
               <p style={{ fontSize: "1.8rem", marginBottom: "8px" }}>📝</p>
-              <p style={{ color: "var(--text-2)", fontSize: "14px" }}>No notes yet — add your first one above.</p>
+              <p style={{ color: "var(--text-2)", fontSize: "14px" }}>No notes yet — add up to {MAX_NOTES} notes above</p>
             </div>
           )}
           {!loadingNotes && notes.length > 0 && (
             <ul>
               {notes.map((n) => (
                 <li key={n._id} className="note-item">
-                  <span className="note-content">{n.content}</span>
+                  <span className="note-content">{n.content.slice(0, 150)}{n.content.length > 150 ? "..." : ""}</span>
                   <button
                     className="btn-danger"
                     onClick={() => deleteNote(n._id)}
@@ -301,17 +402,22 @@ function Room() {
 
         {/* Add PYQ */}
         <div className="card">
-          <h3>Add Previous Year Question</h3>
-          <p style={{ fontSize: "13px", marginBottom: "14px" }}>
-            Upload a PYQ as text or PDF for this room.
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <h3 style={{ marginBottom: 0 }}>Add Previous Year Question Paper</h3>
+            <span style={{ fontSize: "12px", color: pyqs.length >= MAX_PYQS ? "var(--danger)" : "var(--text-3)" }}>
+              {pyqs.length}/{MAX_PYQS} PYQ
+            </span>
+          </div>
+          <p style={{ fontSize: "13px", marginBottom: "14px", color: "var(--text-2)" }}>
+            Upload {MAX_PYQS} PYQ to help AI understand KTU exam patterns and question styles.
           </p>
 
-          {/* Mode Toggle */}
           <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
             <button
               className={pyqMode === "text" ? "" : "btn-ghost"}
               onClick={() => setPyqMode("text")}
               style={{ fontSize: "13px", padding: "7px 16px" }}
+              disabled={pyqs.length >= MAX_PYQS}
             >
               Text
             </button>
@@ -319,6 +425,7 @@ function Room() {
               className={pyqMode === "pdf" ? "" : "btn-ghost"}
               onClick={() => setPyqMode("pdf")}
               style={{ fontSize: "13px", padding: "7px 16px" }}
+              disabled={pyqs.length >= MAX_PYQS}
             >
               PDF Upload
             </button>
@@ -326,16 +433,18 @@ function Room() {
 
           <input
             type="text"
-            placeholder="Title (e.g. 2023 Mid Sem)"
+            placeholder="Title (e.g., 2023 Mid Sem, S5 Dec 2022)"
             value={pyqTitle}
             onChange={(e) => setPyqTitle(e.target.value)}
+            disabled={pyqs.length >= MAX_PYQS}
           />
 
           {pyqMode === "text" ? (
             <textarea
-              placeholder="Paste the questions here…"
+              placeholder="Paste the previous year questions here…"
               value={pyqContent}
               onChange={(e) => setPyqContent(e.target.value)}
+              disabled={pyqs.length >= MAX_PYQS}
             />
           ) : (
             <div style={{ marginBottom: "14px" }}>
@@ -344,6 +453,7 @@ function Room() {
                 accept=".pdf"
                 onChange={(e) => setPyqFile(e.target.files[0])}
                 style={{ cursor: "pointer" }}
+                disabled={pyqs.length >= MAX_PYQS}
               />
               {pyqFile && (
                 <p style={{ fontSize: "12px", color: "var(--success)", marginTop: "6px" }}>
@@ -353,8 +463,8 @@ function Room() {
             </div>
           )}
 
-          <button onClick={addPyq} disabled={addingPyq}>
-            {addingPyq ? "Adding…" : "Add PYQ"}
+          <button onClick={addPyq} disabled={addingPyq || pyqs.length >= MAX_PYQS}>
+            {addingPyq ? "Adding…" : pyqs.length >= MAX_PYQS ? "Limit Reached" : "Add PYQ"}
           </button>
         </div>
 
@@ -367,13 +477,12 @@ function Room() {
           {loadingPyqs && (
             <>
               <div className="skeleton" style={{ width: "90%", marginBottom: "10px" }} />
-              <div className="skeleton" style={{ width: "70%" }} />
             </>
           )}
           {!loadingPyqs && pyqs.length === 0 && (
             <div style={{ textAlign: "center", padding: "24px 0" }}>
               <p style={{ fontSize: "1.8rem", marginBottom: "8px" }}>📄</p>
-              <p style={{ color: "var(--text-2)", fontSize: "14px" }}>No PYQs yet — add your first one above.</p>
+              <p style={{ color: "var(--text-2)", fontSize: "14px" }}>No PYQ yet — add {MAX_PYQS} PYQ to help AI understand exam patterns</p>
             </div>
           )}
           {!loadingPyqs && pyqs.length > 0 && (

@@ -38,4 +38,23 @@ router.get("/:roomId", async (req, res) => {
   }
 });
 
+/**
+ * DELETE RESOURCE
+ * DELETE /resources/:resourceId
+ */
+router.delete("/:resourceId", async (req, res) => {
+  try {
+    const resource = await Resource.findByIdAndDelete(req.params.resourceId);
+
+    if (!resource) {
+      return res.status(404).json({ error: "Resource not found" });
+    }
+
+    res.json({ message: "Resource deleted" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
+
