@@ -12,9 +12,100 @@ const upload = multer({ storage: multer.memoryStorage() });
 const MAX_NOTES = 5;
 const MAX_PYQS = 1;
 
-/**
- * ADD NOTE (TEXT)
- */
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+async function extractPYQPatterns(pyqContent) {
+  try {
+    const prompt = `Analyze this KTU previous year question paper and extract patterns.
+
+PYQ:
+${pyqContent.slice(0, 3000)}
+
+Extract ONLY a JSON object with:
+{
+  "partAPatterns": ["Explain", "Define", "What is", "Distinguish"],
+  "partBPatterns": ["Explain with diagram", "Discuss", "Calculate", "Distinguish between"],
+  "frequentTopics": ["topic1", "topic2"],
+  "difficultyLevel": "moderate"
+}`;
+
+    const completion = await groq.chat.completions.create({
+      messages: [{ role: "user", content: prompt }],
+      model: "llama-3.1-8b-instant",
+      temperature: 0.3,
+      max_tokens: 400,
+    });
+
+    const response = completion.choices[0]?.message?.content || "{}";
+    const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    return JSON.parse(cleaned);
+  } catch (error) {
+    console.error("PYQ pattern extraction failed:", error);
+    return null;
+  }
+}
+
+async function extractTopics(notesContent) {
+  try {
+    const prompt = `Extract 10-15 main topics from these notes. Return ONLY a JSON array.
+
+Notes:
+${notesContent.slice(0, 3000)}
+
+Return: ["topic1", "topic2", ...]`;
+
+    const completion = await groq.chat.completions.create({
+      messages: [{ role: "user", content: prompt }],
+      model: "llama-3.1-8b-instant",
+      temperature: 0.3,
+      max_tokens: 250,
+    });
+
+    const response = completion.choices[0]?.message?.content || "[]";
+    const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    return JSON.parse(cleaned);
+  } catch (error) {
+    return [];
+  }
+}
+
+function checkTopicCoverage(generatedPaper, extractedTopics) {
+  if (!extractedTopics || extractedTopics.length === 0) return 100;
+  let coveredCount = 0;
+  const paperLower = generatedPaper.toLowerCase();
+  for (const topic of extractedTopics) {
+    if (paperLower.includes(topic.toLowerCase())) coveredCount++;
+  }
+  return (coveredCount / extractedTopics.length) * 100;
+}
+
+function getDifficultyConfig(goal) {
+  const configs = {
+    pass: {
+      partA: "1-2 paragraphs with basic definition and simple explanation",
+      partB_each: "3-4 paragraphs per sub-question. Each 7-mark answer should have: definition (1 mark) + explanation (4 marks) + example (2 marks)",
+      depth: "Basic understanding, simple examples"
+    },
+    good: {
+      partA: "2-3 paragraphs with clear definition and detailed explanation",
+      partB_each: "4-6 paragraphs per sub-question. Each 7-mark answer should have: definition (1 mark) + detailed explanation (4 marks) + diagram/example (2 marks)",
+      depth: "Comprehensive understanding with analysis"
+    },
+    high: {
+      partA: "3-4 paragraphs with definition, detailed explanation, and examples",
+      partB_each: "6-8 paragraphs per sub-question. Each 7-mark answer should have: definition (1 mark) + exhaustive explanation (4-5 marks) + diagram + multiple examples (2 marks)",
+      depth: "Deep analysis, critical thinking, real-world applications"
+    }
+  };
+  return configs[goal] || configs.pass;
+}
+
+// ============================================
+// ROUTES
+// ============================================
+
 router.post("/", async (req, res) => {
   try {
     const { roomId, content } = req.body;
@@ -23,11 +114,10 @@ router.post("/", async (req, res) => {
     }
     const noteCount = await Note.countDocuments({ roomId });
     if (noteCount >= MAX_NOTES) {
-      return res.status(400).json({ 
-        error: `Maximum ${MAX_NOTES} notes allowed per room. Delete old notes to add new ones.` 
-      });
+      return res.status(400).json({ error: `Maximum ${MAX_NOTES} notes allowed.` });
     }
-    const note = new Note({ roomId, content });
+    const topics = await extractTopics(content);
+    const note = new Note({ roomId, content, topics: topics });
     await note.save();
     res.json({ note });
   } catch (error) {
@@ -35,30 +125,22 @@ router.post("/", async (req, res) => {
   }
 });
 
-/**
- * ADD NOTE FROM PDF
- */
 router.post("/upload", upload.single("pdf"), async (req, res) => {
   try {
     const { roomId } = req.body;
-    if (!roomId) {
-      return res.status(400).json({ error: "roomId required" });
-    }
-    if (!req.file) {
-      return res.status(400).json({ error: "PDF file required" });
-    }
+    if (!roomId) return res.status(400).json({ error: "roomId required" });
+    if (!req.file) return res.status(400).json({ error: "PDF file required" });
     const noteCount = await Note.countDocuments({ roomId });
     if (noteCount >= MAX_NOTES) {
-      return res.status(400).json({ 
-        error: `Maximum ${MAX_NOTES} notes allowed per room. Delete old notes to add new ones.` 
-      });
+      return res.status(400).json({ error: `Maximum ${MAX_NOTES} notes allowed.` });
     }
     const pdfData = await pdfParse(req.file.buffer);
     const content = pdfData.text;
     if (!content || content.length < 20) {
       return res.status(400).json({ error: "Could not extract text from PDF" });
     }
-    const note = new Note({ roomId, content });
+    const topics = await extractTopics(content);
+    const note = new Note({ roomId, content, topics: topics });
     await note.save();
     res.json({ note });
   } catch (error) {
@@ -67,7 +149,7 @@ router.post("/upload", upload.single("pdf"), async (req, res) => {
 });
 
 /**
- * GENERATE KTU FORMAT EXAM PAPER
+ * ULTIMATE EXAM GENERATION - PERFECT KTU FORMAT
  */
 router.get("/generate/:roomId", async (req, res) => {
   try {
@@ -75,347 +157,196 @@ router.get("/generate/:roomId", async (req, res) => {
     const pyqs = await PYQ.find({ roomId: req.params.roomId });
 
     if (notes.length === 0) {
-      return res.json({ output: "No notes found. Please add at least 1 note to generate exam paper." });
+      return res.json({ output: "No notes found." });
     }
 
     const goal = req.query.goal || "pass";
-    const totalMarks = 100; // Fixed for KTU
+    console.log("=== ULTIMATE KTU EXAM GENERATION ===");
 
-    const combinedNotes = notes.map(n => n.content).join("\n\n===MODULE SEPARATOR===\n\n");
-    
-    // PYQ Analysis
-    let pyqSection = "";
+    // Extract patterns
+    let pyqPatterns = null;
     if (pyqs.length > 0) {
-      pyqSection = `
-PREVIOUS YEAR QUESTION PAPER (FOR PATTERN ANALYSIS):
-Title: ${pyqs[0].title}
-Content:
-${pyqs[0].content}
-
-ANALYZE THIS PYQ TO:
-1. Identify common question patterns (verbs like: Explain, Distinguish, State and explain, Write notes on, Discuss, Illustrate with diagram, Diagrammatically explain, Compare)
-2. Extract frequently tested topics
-3. Understand diagram requirements
-4. Note question phrasing style
-`;
+      console.log("Extracting PYQ patterns...");
+      pyqPatterns = await extractPYQPatterns(pyqs[0].content);
     }
 
-    const systemPrompt = `You are an AI system responsible for generating Kerala Technological University (KTU) exam papers and answers.
+    // Get topics
+    let allTopics = [];
+    for (const note of notes) {
+      if (note.topics && note.topics.length > 0) {
+        allTopics.push(...note.topics);
+      }
+    }
+    allTopics = [...new Set(allTopics)];
 
-The system receives:
-• Uploaded study notes (Modules 1–5)
-• Previous year question papers (PYQ)
-• Selected difficulty level (${goal.toUpperCase()})
+    const difficultyConfig = getDifficultyConfig(goal);
+    const combinedNotes = notes.map(n => n.content).join("\n\n");
 
-Your job is to generate a realistic KTU-style exam paper with answers, strictly following the rules below.
+    const systemPrompt = `You are a KTU exam paper generator. Generate REALISTIC exam papers matching ACTUAL KTU format.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. EXAM STRUCTURE (MANDATORY)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL KTU FORMAT RULES:
+1. Part A: 10 questions × 3 marks = 30 marks (ALL compulsory)
+2. Part B: 5 modules, each module has ONE question with TWO sub-parts
+   - Module 1: Q11 has (a) 7 marks + (b) 7 marks = 14 marks total
+   - Module 2: Q12 has (a) 7 marks + (b) 7 marks = 14 marks total
+   - Module 3: Q13 has (a) 7 marks + (b) 7 marks = 14 marks total
+   - Module 4: Q14 has (a) 7 marks + (b) 7 marks = 14 marks total
+   - Module 5: Q15 has (a) 7 marks + (b) 7 marks = 14 marks total
+3. Students answer BOTH sub-questions (a) AND (b) for each module
+4. Total: 100 marks
 
-The generated exam paper must strictly follow the KTU format.
+DIFFICULTY: ${goal.toUpperCase()}
+- Part A answers: ${difficultyConfig.partA}
+- Part B answers: ${difficultyConfig.partB_each}
 
-PART A
-10 questions × 3 marks = 30 marks
-All questions compulsory.
+${pyqPatterns ? `PYQ PATTERNS DETECTED:
+- Part A verbs: ${pyqPatterns.partAPatterns?.join(", ")}
+- Part B verbs: ${pyqPatterns.partBPatterns?.join(", ")}
+- Frequent topics: ${pyqPatterns.frequentTopics?.join(", ")}
+USE THESE EXACT PATTERNS IN YOUR QUESTIONS.` : ''}
 
-PART B
-Answer ONE question from EACH module.
-• Module 1 → Question 11 (a or b) → 14 marks
-• Module 2 → Question 12 (a or b) → 14 marks
-• Module 3 → Question 13 (a or b) → 14 marks
-• Module 4 → Question 14 (a or b) → 14 marks
-• Module 5 → Question 15 (a or b) → 14 marks
+${allTopics.length > 0 ? `TOPICS TO COVER: ${allTopics.slice(0, 15).join(", ")}` : ''}
 
-Total marks = 100.
+ANSWER WRITING RULES:
+- Part A (3 marks): ${difficultyConfig.partA}
+- Part B EACH SUB-QUESTION (7 marks): ${difficultyConfig.partB_each}
+- NO fabrication - use ONLY information from notes
+- Include [Diagram: name] where diagrams are needed`;
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2. USE THE UPLOADED NOTES AS PRIMARY SOURCE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const userPrompt = `STUDY NOTES:
+${combinedNotes.slice(0, 7000)}
 
-All answers must be derived from the uploaded notes.
-
-Process:
-1. Identify the module related to the question.
-2. Retrieve the relevant content from the notes.
-3. Generate the answer using that content.
-4. Paraphrase only slightly for clarity.
-
-Rules:
-• Do NOT fabricate theories not present in the notes.
-• Do NOT invent formulas or numerical problems.
-• Do NOT introduce unrelated economic concepts.
-
-Answers must stay consistent with the syllabus.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-3. PYQ PATTERN AWARENESS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Analyze the previous year question papers and mimic their style.
-
-Common KTU verbs include:
-• Explain
-• Distinguish
-• State and explain
-• Write notes on
-• Discuss
-• Illustrate with diagram
-• Diagrammatically explain
-• Compare
-
-Avoid quiz-style or MCQ questions.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-4. MODULE COVERAGE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Ensure the exam paper covers all five modules.
-
-Module 1 → Basic economic concepts (PPC, utility, scarcity)
-Module 2 → Demand, elasticity, taxation
-Module 3 → Production, costs, market structures
-Module 4 → Macroeconomic concepts, fiscal/monetary policy
-Module 5 → International trade, BOP, trade theories
-
-No module should be skipped.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-5. AVOID DUPLICATE TOPICS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Before finalizing the paper:
-• Check for repeated topics.
-• Avoid asking the same concept multiple times.
-
-For example:
-Opportunity cost should not appear repeatedly across multiple sections.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-6. ANSWER STRUCTURE (FOR 14 MARK QUESTIONS)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Each long answer must follow this structure:
-1. Definition
-2. Concept explanation
-3. Diagram description (if applicable)
-4. Example or application
-5. Short concluding statement
-
-If diagrams are required, include placeholders such as:
-[Diagram: PPC]
-[Diagram: Demand and Supply]
-[Diagram: Deadweight Loss]
-
-Do not attempt ASCII drawings.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-7. DIFFICULTY LEVEL ADJUSTMENT
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${goal.toUpperCase()} LEVEL:
-
-${goal === 'pass' ? `
-• Simple definitions
-• Basic explanations (2-3 paragraphs for Part A, 4-5 paragraphs for Part B)
-• Shorter answers focusing on core concepts only
-• Minimal diagram descriptions
-` : goal === 'good' ? `
-• Moderate explanation (3-4 paragraphs for Part A, 6-8 paragraphs for Part B)
-• Diagrams where appropriate with proper descriptions
-• Some analytical discussion
-• Include examples from notes
-` : `
-• Deeper theoretical explanation (4-5 paragraphs for Part A, 10-12 paragraphs for Part B)
-• Comparisons and critical analysis
-• Detailed diagram descriptions with all components labeled
-• Multiple examples and real-world applications
-• Comprehensive coverage of all aspects
-`}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-8. CONCEPT VALIDATION
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Ensure economic concepts are correct.
-
-Examples:
-• Absolute Advantage → Adam Smith
-• Comparative Advantage → David Ricardo
-
-Elasticity definitions must follow standard economic definitions.
-Law of Variable Proportions must not be confused with other economic laws.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-9. FINAL VALIDATION CHECK
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Before outputting the paper, verify:
-✓ Total marks = 100
-✓ Correct module distribution (2 Part A + 2 Part B per module)
-✓ No duplicate questions
-✓ Correct economic terminology
-✓ Questions follow KTU exam style
-✓ Answers align with the uploaded notes
-
-Only after validation should the final exam paper be generated.`;
-
-    const userPrompt = `${pyqSection}
-
-UPLOADED STUDY NOTES (MODULES 1-5):
-${combinedNotes.slice(0, 8000)}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-GENERATE THE EXAM PAPER NOW
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Generate a complete KTU exam paper with answers following the exact format below:
+Generate complete KTU exam paper with answers. Follow this EXACT format:
 
 PART A
 Answer ALL questions (10 × 3 = 30 marks)
 
-1. [Question based on Module 1 using KTU style verbs]
+1. [Question from Module 1]
 
 Answer:
-[${goal === 'pass' ? '2-3 paragraph answer' : goal === 'good' ? '3-4 paragraph answer' : '4-5 paragraph comprehensive answer'} derived from uploaded notes]
+[${difficultyConfig.partA}]
 
-2. [Question based on Module 1 using different topic]
-
-Answer:
-[Answer from notes]
-
-3. [Question based on Module 2]
+2. [Question from Module 1]
 
 Answer:
-[Answer from notes]
+[${difficultyConfig.partA}]
 
-4. [Question based on Module 2, different topic]
-
-Answer:
-[Answer from notes]
-
-5. [Question based on Module 3]
+3. [Question from Module 2]
 
 Answer:
-[Answer from notes]
+[${difficultyConfig.partA}]
 
-6. [Question based on Module 3, different topic]
-
-Answer:
-[Answer from notes]
-
-7. [Question based on Module 4]
+4. [Question from Module 2]
 
 Answer:
-[Answer from notes]
+[${difficultyConfig.partA}]
 
-8. [Question based on Module 4, different topic]
-
-Answer:
-[Answer from notes]
-
-9. [Question based on Module 5]
+5. [Question from Module 3]
 
 Answer:
-[Answer from notes]
+[${difficultyConfig.partA}]
 
-10. [Question based on Module 5, different topic]
+6. [Question from Module 3]
 
 Answer:
-[Answer from notes]
+[${difficultyConfig.partA}]
+
+7. [Question from Module 4]
+
+Answer:
+[${difficultyConfig.partA}]
+
+8. [Question from Module 4]
+
+Answer:
+[${difficultyConfig.partA}]
+
+9. [Question from Module 5]
+
+Answer:
+[${difficultyConfig.partA}]
+
+10. [Question from Module 5]
+
+Answer:
+[${difficultyConfig.partA}]
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 PART B
-Answer ONE question from EACH module (5 × 14 = 70 marks)
+Answer ALL sub-questions from EACH module (5 × 14 = 70 marks)
 
 MODULE 1
 
-11. a) [Question using KTU style verb - e.g., "Explain with diagram..." or "Discuss..."] (14 marks)
+11. a) [Question using KTU pattern] (7 marks)
 
 Answer:
-[Follow 14-mark answer structure:
-1. Definition
-2. Concept explanation (${goal === 'pass' ? '4-5 paragraphs' : goal === 'good' ? '6-8 paragraphs' : '10-12 paragraphs'})
-3. [Diagram: Name] if applicable
-4. Example/application
-5. Conclusion]
+[${difficultyConfig.partB_each}]
 
-OR
-
-11. b) [Different topic from Module 1] (14 marks)
+    b) [Different question using KTU pattern] (7 marks)
 
 Answer:
-[Same structure as above]
+[${difficultyConfig.partB_each}]
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 MODULE 2
 
-12. a) [Question from Module 2] (14 marks)
+12. a) [Question using KTU pattern] (7 marks)
 
 Answer:
-[14-mark answer structure]
+[${difficultyConfig.partB_each}]
 
-OR
-
-12. b) [Different topic from Module 2] (14 marks)
+    b) [Different question using KTU pattern] (7 marks)
 
 Answer:
-[14-mark answer structure]
+[${difficultyConfig.partB_each}]
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 MODULE 3
 
-13. a) [Question from Module 3] (14 marks)
+13. a) [Question using KTU pattern] (7 marks)
 
 Answer:
-[14-mark answer structure]
+[${difficultyConfig.partB_each}]
 
-OR
-
-13. b) [Different topic from Module 3] (14 marks)
+    b) [Different question using KTU pattern] (7 marks)
 
 Answer:
-[14-mark answer structure]
+[${difficultyConfig.partB_each}]
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 MODULE 4
 
-14. a) [Question from Module 4] (14 marks)
+14. a) [Question using KTU pattern] (7 marks)
 
 Answer:
-[14-mark answer structure]
+[${difficultyConfig.partB_each}]
 
-OR
-
-14. b) [Different topic from Module 4] (14 marks)
+    b) [Different question using KTU pattern] (7 marks)
 
 Answer:
-[14-mark answer structure]
+[${difficultyConfig.partB_each}]
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 MODULE 5
 
-15. a) [Question from Module 5] (14 marks)
+15. a) [Question using KTU pattern] (7 marks)
 
 Answer:
-[14-mark answer structure]
+[${difficultyConfig.partB_each}]
 
-OR
-
-15. b) [Different topic from Module 5] (14 marks)
+    b) [Different question using KTU pattern] (7 marks)
 
 Answer:
-[14-mark answer structure]
+[${difficultyConfig.partB_each}]
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-END OF QUESTION PAPER
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+Generate now:`;
 
+    console.log("Generating exam with PERFECT KTU format...");
     const completion = await groq.chat.completions.create({
       messages: [
         { role: "system", content: systemPrompt },
@@ -423,33 +354,40 @@ END OF QUESTION PAPER
       ],
       model: "llama-3.1-8b-instant",
       temperature: 0.7,
-      max_tokens: 7000,
+      max_tokens: 7500,
     });
 
-    const output = completion.choices[0]?.message?.content || "";
+    const generatedPaper = completion.choices[0]?.message?.content || "";
+    const coverage = checkTopicCoverage(generatedPaper, allTopics);
+
+    console.log(`Topic coverage: ${coverage.toFixed(1)}%`);
+    console.log("=== GENERATION COMPLETE ===");
 
     res.json({
-      output,
+      output: generatedPaper,
       pyqsAnalyzed: pyqs.length,
       notesUsed: notes.length,
       goal: goal,
-      totalMarks: totalMarks,
+      totalMarks: 100,
       format: "KTU",
       structure: {
         partA: "10 questions × 3 marks = 30 marks",
-        partB: "5 modules × 14 marks = 70 marks"
+        partB: "5 modules × 14 marks (7+7) = 70 marks"
+      },
+      enhancements: {
+        pyqPatterns: pyqPatterns,
+        topicsCovered: allTopics.length,
+        coveragePercentage: coverage.toFixed(1),
+        difficultyLevel: goal
       }
     });
 
   } catch (error) {
-    console.error("Groq AI error:", error);
+    console.error("Exam generation error:", error);
     res.status(500).json({ error: "Failed to generate questions" });
   }
 });
 
-/**
- * GET NOTES BY ROOM
- */
 router.get("/:roomId", async (req, res) => {
   try {
     const notes = await Note.find({ roomId: req.params.roomId });
@@ -459,15 +397,10 @@ router.get("/:roomId", async (req, res) => {
   }
 });
 
-/**
- * DELETE NOTE
- */
 router.delete("/:noteId", async (req, res) => {
   try {
     const note = await Note.findByIdAndDelete(req.params.noteId);
-    if (!note) {
-      return res.status(404).json({ error: "Note not found" });
-    }
+    if (!note) return res.status(404).json({ error: "Note not found" });
     res.json({ message: "Note deleted" });
   } catch (error) {
     res.status(500).json({ error: error.message });

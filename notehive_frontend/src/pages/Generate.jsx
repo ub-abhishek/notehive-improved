@@ -132,10 +132,10 @@ function Generate() {
         doc.setFontSize(10);
         doc.setFont(undefined, 'bold');
         yPosition += 2;
-      } else if (lines[i].startsWith('Answer:')) {
+      } else if (lines[i].startsWith('Answer:') || lines[i].startsWith('Rubric:')) {
         doc.setFontSize(9);
         doc.setFont(undefined, 'italic');
-      } else if (lines[i].includes('[Module')) {
+      } else if (lines[i].includes('[Module') || lines[i].includes('[Diagram')) {
         doc.setFontSize(8);
         doc.setFont(undefined, 'italic');
       } else {
@@ -172,12 +172,12 @@ function Generate() {
 
         <div style={{ marginBottom: "24px" }}>
           <span className="badge badge-amber" style={{ marginBottom: "12px", display: "inline-block" }}>
-            AI Exam Generator
+            AI Exam Generator {data?.enhancements && "✨ Enhanced"}
             {data?.pyqsAnalyzed > 0 && ` • PYQ Pattern Analyzed`}
           </span>
           <h2 style={{ marginBottom: "6px" }}>Generate Exam Paper</h2>
           <p style={{ fontSize: "13px" }}>
-            {data ? `Generated 100 marks exam (${data.goal} level) from ${data.notesUsed} notes` : 'AI analyzes your notes & PYQ to create custom exam papers'}
+            {data ? `Generated 100 marks exam (${data.goal} level) from ${data.notesUsed} notes` : 'AI analyzes your notes & PYQ with advanced pattern recognition'}
           </p>
         </div>
 
@@ -185,7 +185,7 @@ function Generate() {
           <div className="card">
             <h3>Exam Configuration</h3>
             <p style={{ fontSize: "13px", marginBottom: "20px", color: "var(--text-2)" }}>
-              Part A (10×3=30 marks) + Part B (5×14=70 marks) = 100 marks total
+              Enhanced AI with PYQ pattern extraction, topic coverage validation, and difficulty calibration
             </p>
 
             <div style={{ marginBottom: "16px" }}>
@@ -219,41 +219,27 @@ function Generate() {
                 {goal === "pass" && (
                   <>
                     <strong>Pass Level:</strong><br/>
-                    • Part A: Brief 1-2 paragraph answers<br/>
+                    • Bloom's Taxonomy: Remember, Understand<br/>
+                    • Part A: 2-3 paragraph answers<br/>
                     • Part B: 4-5 paragraphs with key concepts
                   </>
                 )}
                 {goal === "good" && (
                   <>
                     <strong>Good Level:</strong><br/>
-                    • Part A: Detailed 2-3 paragraph answers<br/>
-                    • Part B: 6-8 paragraphs with diagrams & examples
+                    • Bloom's Taxonomy: Understand, Apply, Analyze<br/>
+                    • Part A: 3-4 paragraph answers<br/>
+                    • Part B: 6-8 paragraphs with analysis
                   </>
                 )}
                 {goal === "high" && (
                   <>
                     <strong>High Score Level:</strong><br/>
-                    • Part A: Comprehensive 3-4 paragraph answers<br/>
-                    • Part B: 10-12 paragraphs with exhaustive detail, multiple diagrams, applications
+                    • Bloom's Taxonomy: Analyze, Evaluate, Create<br/>
+                    • Part A: 4-5 paragraph answers<br/>
+                    • Part B: 10-12 paragraphs with deep analysis
                   </>
                 )}
-              </div>
-            </div>
-
-            <div style={{ 
-              padding: "12px", 
-              background: "var(--surface-2)", 
-              borderRadius: "var(--radius-sm)", 
-              marginBottom: "16px",
-              border: "1px solid var(--border)"
-            }}>
-              <div style={{ fontSize: "12px", fontWeight: 600, marginBottom: "8px", color: "var(--text)" }}>
-                Exam Structure:
-              </div>
-              <div style={{ fontSize: "11px", color: "var(--text-2)", lineHeight: "1.8" }}>
-                <strong>Part A:</strong> 10 questions (all compulsory) × 3 marks = 30 marks<br/>
-                <strong>Part B:</strong> 5 modules, choose 1 of 2 per module × 14 marks = 70 marks<br/>
-                <strong>Total:</strong> 100 marks | <strong>Time:</strong> 3 hours
               </div>
             </div>
 
@@ -261,7 +247,7 @@ function Generate() {
               onClick={fetchQuestions}
               style={{ width: "100%", marginTop: "8px" }}
             >
-              ✦ Generate Exam Paper
+              ✦ Generate Enhanced Exam Paper
             </button>
           </div>
         )}
@@ -270,8 +256,14 @@ function Generate() {
           <div className="card" style={{ textAlign: "center", padding: "48px 20px" }}>
             <div style={{ fontSize: "2rem", marginBottom: "16px", animation: "spin 1.5s linear infinite", display: "inline-block" }}>✦</div>
             <p style={{ fontWeight: 600, marginBottom: "8px" }}>Generating exam paper...</p>
+            <p style={{ fontSize: "13px", color: "var(--text-3)", marginBottom: "6px" }}>
+              ✓ Extracting PYQ patterns
+            </p>
+            <p style={{ fontSize: "13px", color: "var(--text-3)", marginBottom: "6px" }}>
+              ✓ Analyzing topics coverage
+            </p>
             <p style={{ fontSize: "13px", color: "var(--text-3)" }}>
-              Analyzing PYQ patterns • Creating {goal} level questions
+              ✓ Calibrating difficulty for {goal} level
             </p>
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
@@ -286,6 +278,47 @@ function Generate() {
 
         {!loading && !error && output && (
           <>
+            {/* Enhancement Metadata */}
+            {data?.enhancements && (
+              <div className="card" style={{ marginBottom: "16px", background: "linear-gradient(135deg, rgba(251, 191, 36, 0.05) 0%, rgba(251, 146, 60, 0.05) 100%)" }}>
+                <h3 style={{ marginBottom: "12px", fontSize: "1rem" }}>✨ AI Enhancement Report</h3>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", fontSize: "12px" }}>
+                  {data.enhancements.pyqPatterns && (
+                    <div>
+                      <strong>PYQ Patterns:</strong>
+                      <div style={{ color: "var(--text-3)", marginTop: "4px" }}>
+                        Difficulty: {data.enhancements.pyqPatterns.difficultyLevel}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <strong>Topics Covered:</strong>
+                    <div style={{ color: "var(--text-3)", marginTop: "4px" }}>
+                      {data.enhancements.topicsCovered} topics identified
+                    </div>
+                  </div>
+                  <div>
+                    <strong>Coverage:</strong>
+                    <div style={{ color: data.enhancements.coveragePercentage >= 70 ? "var(--success)" : "var(--danger)", marginTop: "4px" }}>
+                      {data.enhancements.coveragePercentage}%
+                    </div>
+                  </div>
+                  <div>
+                    <strong>Bloom's Taxonomy:</strong>
+                    <div style={{ color: "var(--text-3)", marginTop: "4px" }}>
+                      {data.enhancements.bloomsTaxonomy?.join(", ")}
+                    </div>
+                  </div>
+                </div>
+                {data.enhancements.validationWarnings && data.enhancements.validationWarnings.length > 0 && (
+                  <div style={{ marginTop: "12px", padding: "8px 12px", background: "rgba(251, 191, 36, 0.1)", borderRadius: "4px", fontSize: "11px" }}>
+                    ⚠ {data.enhancements.validationWarnings.join(", ")}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Exam Structure */}
             {data?.structure && (
               <div className="card" style={{ marginBottom: "16px" }}>
                 <h3>Exam Structure</h3>
@@ -322,6 +355,7 @@ function Generate() {
               </div>
             )}
 
+            {/* Generated Paper */}
             <div className="card">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
                 <h3 style={{ marginBottom: 0 }}>Exam Paper</h3>
