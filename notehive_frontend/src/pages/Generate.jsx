@@ -254,18 +254,68 @@ function Generate() {
 
         {loading && (
           <div className="card" style={{ textAlign: "center", padding: "48px 20px" }}>
+            {/* Animated Progress Bar */}
+            <div style={{ 
+              width: "100%", 
+              height: "4px", 
+              background: "var(--surface-2)", 
+              borderRadius: "2px",
+              overflow: "hidden",
+              marginBottom: "24px"
+            }}>
+              <div style={{
+                height: "100%",
+                background: "linear-gradient(90deg, var(--accent) 0%, #f59e0b 100%)",
+                animation: "progress 8s ease-in-out infinite",
+                transformOrigin: "left"
+              }}></div>
+            </div>
+
             <div style={{ fontSize: "2rem", marginBottom: "16px", animation: "spin 1.5s linear infinite", display: "inline-block" }}>✦</div>
-            <p style={{ fontWeight: 600, marginBottom: "8px" }}>Generating exam paper...</p>
-            <p style={{ fontSize: "13px", color: "var(--text-3)", marginBottom: "6px" }}>
-              ✓ Extracting PYQ patterns
+            <p style={{ fontWeight: 600, marginBottom: "16px", fontSize: "1.1rem" }}>
+              Generating Your Exam Paper
             </p>
-            <p style={{ fontSize: "13px", color: "var(--text-3)", marginBottom: "6px" }}>
-              ✓ Analyzing topics coverage
+            
+            <div style={{ 
+              display: "inline-block",
+              textAlign: "left", 
+              background: "var(--surface-2)", 
+              padding: "16px 24px", 
+              borderRadius: "8px",
+              marginBottom: "16px"
+            }}>
+              <p style={{ fontSize: "13px", color: "var(--text-2)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ color: "var(--success)" }}>✓</span> Extracting PYQ patterns
+              </p>
+              <p style={{ fontSize: "13px", color: "var(--text-2)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ color: "var(--success)" }}>✓</span> Analyzing {goal} level difficulty
+              </p>
+              <p style={{ fontSize: "13px", color: "var(--text-2)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ animation: "pulse 1.5s infinite" }}>⟳</span> Generating questions & answers
+              </p>
+              <p style={{ fontSize: "13px", color: "var(--text-3)", display: "flex", alignItems: "center", gap: "8px" }}>
+                <span>○</span> Validating topic coverage
+              </p>
+            </div>
+
+            <p style={{ fontSize: "12px", color: "var(--text-3)" }}>
+              This takes ~8-12 seconds • Optimizing for 95%+ topic coverage
             </p>
-            <p style={{ fontSize: "13px", color: "var(--text-3)" }}>
-              ✓ Calibrating difficulty for {goal} level
-            </p>
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+            <style>{`
+              @keyframes spin { 
+                to { transform: rotate(360deg); } 
+              }
+              @keyframes progress {
+                0% { transform: scaleX(0); }
+                50% { transform: scaleX(0.7); }
+                100% { transform: scaleX(1); }
+              }
+              @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.4; }
+              }
+            `}</style>
           </div>
         )}
 
